@@ -1,0 +1,53 @@
+Metadata-Version: 2.1
+Name: mlpack
+Version: 4.3.0.post2
+Summary: a flexible, fast machine learning library
+Home-page: http://www.mlpack.org/
+Author: mlpack developers
+Author-email: mlpack@lists.mlpack.org
+License: BSD
+Project-URL: Documentation, http://www.mlpack.org/doc/mlpack-4.3.0.post2/python.html
+Project-URL: Source, https://github.com/mlpack/mlpack/
+Project-URL: Tracker, https://github.com/mlpack/mlpack/issues
+Keywords: machine learning,data mining,deep learning,optimization
+Classifier: Development Status :: 5 - Production/Stable
+Classifier: Intended Audience :: Science/Research
+Classifier: License :: OSI Approved :: BSD License
+Classifier: Topic :: Scientific/Engineering :: Artificial Intelligence
+Classifier: Topic :: Scientific/Engineering :: Mathematics
+Classifier: Topic :: Software Development :: Libraries
+Classifier: Topic :: Software Development :: Libraries :: Application Frameworks
+Description-Content-Type: text/markdown
+Requires-Dist: cython (>=0.24)
+Requires-Dist: numpy
+Requires-Dist: pandas
+
+mlpack is a fast, flexible machine learning library, written in C++, that aims
+to provide fast, extensible implementations of cutting-edge machine learning
+algorithms.  mlpack provides these algorithms as standalone Python functions,
+which wrap the fast C++ implementations of the algorithms.
+
+mlpack's techniques fall into a handful of categories:
+
+ * _Classification_: logistic regression, perceptrons, random forests, linear
+   SVMs, AdaBoost, etc.
+
+ * _Regression_: linear regression, least angle regression, etc.
+
+ * _Clustering_: Gaussian mixture models, k-means, mean shift, DBSCAN, etc.
+
+ * _Geometry_: k-nearest-neighbor search, max-kernel search, locality sensitive
+   hashing (LSH), etc.
+
+ * _Preprocessing_: dataset splitting, binarization, scaling, one hot encoding,
+   etc.
+
+ * _Misc. / Other_: collaborative filtering, density estimation trees, Hidden
+   Markov Models, kernel density estimation (KDE), etc.
+
+ * _Transformations_: kernel PCA, sparse coding, large margin nearest neighbors,
+   PCA, etc.
+
+For more documentation on each individual function that mlpack provides, see the
+[Python binding
+documentation](https://www.mlpack.org/doc/stable/python_documentation.html).

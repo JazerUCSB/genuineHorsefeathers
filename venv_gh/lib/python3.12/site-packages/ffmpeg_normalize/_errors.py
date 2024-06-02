@@ -1,0 +1,2 @@
+class FFmpegNormalizeError(Exception):
+    pass
