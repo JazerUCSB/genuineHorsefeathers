@@ -5,9 +5,6 @@ import librosa
 from sklearn.neighbors import KDTree
 import joblib
 import time
-import threading
-import queue
-import cProfile
 
 # Define constants
 chunk_size = 1024  # Adjusted buffer size
@@ -24,34 +21,30 @@ threshold_off = 0.01
 smoothing_factor = 0.01
 
 def extract_features(y, sr, n_mfcc, hop_length, n_fft, n_mels):
-    try:
-        # Compute the MFCC features
-        mfcc = np.mean(librosa.feature.mfcc(y=y, sr=sr, n_mfcc=n_mfcc, hop_length=hop_length, n_fft=n_fft, n_mels=n_mels), axis=1)
+    # Compute the MFCC features
+    mfcc = np.mean(librosa.feature.mfcc(y=y, sr=sr, n_mfcc=n_mfcc, hop_length=hop_length, n_fft=n_fft, n_mels=n_mels), axis=1)
 
-        # Calculate the fundamental frequency (F0)
-        D = np.abs(librosa.stft(y, n_fft=n_fft, hop_length=hop_length))
-        fmin = librosa.note_to_hz('C3')
-        fmax = librosa.note_to_hz('C6')
-        bins_per_octave = 12
-        pitch_bins = librosa.cqt_frequencies(n_bins=n_mels, fmin=fmin, bins_per_octave=bins_per_octave)
-        f0 = np.zeros(D.shape[1])
-        for i in range(D.shape[1]):
-            frame = D[:, i]
-            pitch_range_indices = np.where((pitch_bins >= fmin) & (pitch_bins <= fmax))
-            peak_bin = pitch_range_indices[0][np.argmax(frame[pitch_range_indices])]
-            f0[i] = librosa.hz_to_midi(pitch_bins[peak_bin])
-        
-        # Compute Spectral Centroid
-        spectral_centroid = np.mean(librosa.feature.spectral_centroid(y=y, sr=sr, hop_length=hop_length, n_fft=n_fft), axis=1)
-        
-        # Compute Spectral Roll-off
-        spectral_rolloff = np.mean(librosa.feature.spectral_rolloff(y=y, sr=sr, hop_length=hop_length, n_fft=n_fft), axis=1)
+    # Calculate the fundamental frequency (F0)
+    D = np.abs(librosa.stft(y, n_fft=n_fft, hop_length=hop_length))
+    fmin = librosa.note_to_hz('C3')
+    fmax = librosa.note_to_hz('C6')
+    bins_per_octave = 12
+    pitch_bins = librosa.cqt_frequencies(n_bins=n_mels, fmin=fmin, bins_per_octave=bins_per_octave)
+    f0 = np.zeros(D.shape[1])
+    for i in range(D.shape[1]):
+        frame = D[:, i]
+        pitch_range_indices = np.where((pitch_bins >= fmin) & (pitch_bins <= fmax))
+        peak_bin = pitch_range_indices[0][np.argmax(frame[pitch_range_indices])]
+        f0[i] = librosa.hz_to_midi(pitch_bins[peak_bin])
+    
+    # Compute Spectral Centroid
+    spectral_centroid = np.mean(librosa.feature.spectral_centroid(y=y, sr=sr, hop_length=hop_length, n_fft=n_fft), axis=1)
+    
+    # Compute Spectral Roll-off
+    spectral_rolloff = np.mean(librosa.feature.spectral_rolloff(y=y, sr=sr, hop_length=hop_length, n_fft=n_fft), axis=1)
 
-        # Combine MFCC, F0, Spectral Centroid, and Spectral Roll-off features
-        features = np.concatenate([mfcc, [np.mean(f0)], spectral_centroid, spectral_rolloff])
-    except Exception as e:
-        print(f"Error extracting features: {e}")
-        features = np.zeros(n_mfcc + 3)  # Fallback to a zero feature vector
+    # Combine MFCC, F0, Spectral Centroid, and Spectral Roll-off features
+    features = np.concatenate([mfcc, [np.mean(f0)], spectral_centroid, spectral_rolloff])
 
     return features
 
@@ -117,64 +110,6 @@ def find_nearest_neighbor(feature_vector, kd_tree, file_paths, offsets):
 def apply_envelope(audio, envelope):
     return audio * envelope
 
-def analyze_and_play(input_queue, output_stream, kd_tree, file_paths, offsets):
-    p = pyaudio.PyAudio()
-    gate_open = False
-    fade_samples = chunk_size // 10
-    fade_curve = np.linspace(0, 1, fade_samples)
-    window = np.hanning(chunk_size)
-
-    while True:
-        try:
-            audio_chunk = input_queue.get()
-            if audio_chunk is None:
-                break
-
-            rms = np.sqrt(np.mean(np.square(audio_chunk)))
-            envelope = rms
-            max_envelope = np.max(envelope)
-            envelope *= 3.0
-
-            if gate_open:
-                if max_envelope < threshold_off:
-                    gate_open = False
-            else:
-                if max_envelope > threshold_on:
-                    gate_open = True
-
-            if gate_open:
-                audio_chunk_windowed = audio_chunk * window
-                feature_vector = extract_features(audio_chunk_windowed, sr, n_mfcc, int(chunk_size * hop_ratio), n_fft, n_mels)
-                nearest_neighbor = find_nearest_neighbor(feature_vector, kd_tree, file_paths, offsets)
-                
-
-                if nearest_neighbor:
-                    nearest_audio_file, offset = nearest_neighbor
-                    nearest_audio_chunk, _ = librosa.load(nearest_audio_file, sr=sr, offset=offset, duration=chunk_size/sr)
-                    print(f"Nearest neighbor file: {nearest_audio_file} at offset: {offset:.2f} seconds")
-
-                    windowed_chunk = nearest_audio_chunk * window
-                    play_chunk = np.roll(nearest_audio_chunk, chunk_size // 2)
-                    combined_chunk = windowed_chunk + play_chunk
-                    combined_chunk /= np.max(np.abs(combined_chunk))
-
-                    # Apply the envelope to the nearest audio chunk
-                    mixed_audio = apply_envelope(combined_chunk, envelope)
-
-                    # Smooth the transitions with fade-in and fade-out
-                    #mixed_audio[:fade_samples] *= fade_curve
-                    #mixed_audio[-fade_samples:] *= fade_curve[::-1]
-
-                    # Play back the mixed audio chunk
-                    output_stream.write(mixed_audio.astype(np.float32).tobytes())
-
-            else:
-                # If gate is closed, write silence
-                output_stream.write(np.zeros(chunk_size, dtype=np.float32).tobytes())
-
-        except Exception as e:
-            print(f"Error in analyze_and_play: {e}")
-
 def main():
     corpus_folder = input("Please provide the path to the folder containing WAV files: ")
 
@@ -218,24 +153,97 @@ def main():
                            output=True,
                            output_device_index=output_device_index)
 
-    input_queue = queue.Queue()
+    # Initialize gate state
+    gate_open = False
+    fade_samples = chunk_size // 10  # Number of samples to use for fade-in/fade-out
+    fade_curve = np.linspace(0, 1, fade_samples)
 
-    analyze_and_play_thread = threading.Thread(target=analyze_and_play, args=(input_queue, output_stream, kd_tree, file_paths, offsets))
-    analyze_and_play_thread.start()
+    previous_rms = 0.0
 
     try:
+        previous_chunk = np.zeros(chunk_size, dtype=np.float32)
+        window = np.hanning(chunk_size)
+        current_audio_chunk = None
         while True:
-            data = input_stream.read(chunk_size, exception_on_overflow=False)
-            audio_chunk = np.frombuffer(data, dtype=np.float32)
-            input_queue.put(audio_chunk)
+            try:
+                # Read chunk from microphone
+                data = input_stream.read(chunk_size, exception_on_overflow=False)
+                audio_chunk = np.frombuffer(data, dtype=np.float32)
 
+                # Calculate the RMS of the input audio chunk
+                rms = np.sqrt(np.mean(np.square(audio_chunk)))
+
+                # Smooth the RMS value
+                rms = smoothing_factor * previous_rms + (1 - smoothing_factor) * rms
+                previous_rms = rms
+
+                envelope = rms
+                max_envelope = np.max(envelope)
+                envelope *= 3.0
+                
+                # Apply noise gate with hysteresis
+                if gate_open:
+                    if max_envelope < threshold_off:
+                        gate_open = False
+                else:
+                    if max_envelope > threshold_on:
+                        gate_open = True
+
+                if gate_open:
+                    if current_audio_chunk is None or (current_audio_chunk is not None and len(current_audio_chunk) < chunk_size):
+                        # Apply Hann window to the input audio chunk
+                        audio_chunk_windowed = audio_chunk * window
+
+                        # Extract feature vector for the chunk
+                        feature_vector = extract_features(audio_chunk_windowed, sr, n_mfcc, int(chunk_size * hop_ratio), n_fft, n_mels)
+
+                        # Find the nearest neighbor for the chunk
+                        nearest_neighbor = find_nearest_neighbor(feature_vector, kd_tree, file_paths, offsets)
+
+                        if nearest_neighbor is not None:
+                            nearest_audio_file, offset = nearest_neighbor
+                            print(f"Nearest neighbor file: {nearest_audio_file} at offset: {offset:.2f} seconds")
+
+                            # Load the nearest audio chunk
+                            nearest_audio_chunk, _ = librosa.load(nearest_audio_file, sr=sr, offset=offset, duration=chunk_size/sr, mono=True, res_type='kaiser_fast')
+
+                            current_audio_chunk = nearest_audio_chunk
+
+                    if current_audio_chunk is not None:
+                        play_chunk = current_audio_chunk[:chunk_size]
+                        current_audio_chunk = current_audio_chunk[chunk_size:]
+
+                        # Apply the Hann window to the loaded audio chunk
+                        windowed_chunk = play_chunk * window
+
+                        # Normalize audio chunk to prevent clipping
+                        windowed_chunk /= np.max(np.abs(windowed_chunk))
+
+                        # Perform COLA
+                        combined_chunk = np.zeros(chunk_size)
+                        combined_chunk[:overlap_size] = previous_chunk[-overlap_size:] + windowed_chunk[:overlap_size]
+                        combined_chunk[overlap_size:] = windowed_chunk[overlap_size:]
+
+                        # Apply the envelope to the combined audio chunk
+                        mixed_audio = apply_envelope(combined_chunk, envelope)
+
+                        # Play back the mixed audio chunk
+                        output_stream.write(mixed_audio.astype(np.float32).tobytes())
+
+                        # Store the current chunk for overlap in the next iteration
+                        previous_chunk = mixed_audio
+                else:
+                    # If gate is closed, write silence
+                    output_stream.write(np.zeros(chunk_size, dtype=np.float32).tobytes())
+            except IOError as e:
+                print(f"Input overflow: {e}")
+                continue
+            except Exception as e:
+                print(f"Unexpected error: {e}")
+                break
     except KeyboardInterrupt:
         print("Stopping...")
-
     finally:
-        input_queue.put(None)
-        analyze_and_play_thread.join()
-
         input_stream.stop_stream()
         input_stream.close()
         output_stream.stop_stream()
@@ -244,4 +252,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    cProfile.run('main()')
