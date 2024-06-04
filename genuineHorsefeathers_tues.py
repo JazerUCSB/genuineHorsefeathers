@@ -6,6 +6,7 @@ from sklearn.neighbors import KDTree
 import joblib
 import time
 import soundfile as sf
+import cProfile
 
 # Define constants
 chunk_size = 1024  # Adjusted buffer size
@@ -254,3 +255,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    cProfile.run('main()')
